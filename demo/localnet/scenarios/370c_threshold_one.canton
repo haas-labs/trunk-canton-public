@@ -1,0 +1,9 @@
+val counterparty = p2.parties.list(filterParty = "counterparty::").head.party
+val sync1Id = p1.synchronizers.id_of(SynchronizerAlias.tryCreate("sync1"))
+// 370c: the threshold drops from 2 to 1 with the same two hosts: one node is now enough to move the
+// party's contracts. Ledger API on p1: no event at all. Admin API: threshold=1. This is the drop the
+// capability drift detector alerts on through the Admin API.
+logger.info("370c: threshold back to 1 (the drop)")
+p2.topology.party_to_participant_mappings.propose(counterparty, newParticipants = Seq((p2.id, ParticipantPermission.Submission), (p1.id, ParticipantPermission.Submission)), threshold = PositiveInt.one, store = sync1Id)
+utils.retry_until_true { p1.topology.party_to_participant_mappings.list(sync1Id, filterParty = "counterparty::").exists(_.item.threshold.value == 1) }
+logger.info("370c done: threshold 1")

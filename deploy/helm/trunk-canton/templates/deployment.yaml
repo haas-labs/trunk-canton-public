@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "trunk-canton.fullname" . }}
+  labels:
+    {{- include "trunk-canton.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  # Single writer to the offset PVC: never run two pods over the same volume.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "trunk-canton.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      labels:
+        {{- include "trunk-canton.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: adapter
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "trunk-canton.fullname" . }}
+          {{- with .Values.canton.tokenSecret.name }}
+          env:
+            - name: CANTON_LEDGER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: {{ $.Values.canton.tokenSecret.key | quote }}
+          {{- end }}
+          volumeMounts:
+            - name: offset
+              mountPath: {{ .Values.persistence.mountPath | quote }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: offset
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "trunk-canton.fullname" . }}-offset
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

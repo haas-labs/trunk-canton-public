@@ -1,0 +1,27 @@
+import com.digitalasset.canton.examples.java.iou.{Amount, Iou}
+import com.digitalasset.canton.participant.ledger.api.client.JavaDecodeUtil.decodeAllCreated
+import com.digitalasset.canton.participant.util.JavaCodegenUtil.ContractIdSyntax
+import java.math.{BigDecimal => JavaBigDecimal}
+import scala.jdk.CollectionConverters._
+val client       = p1.parties.list(filterParty = "client::").head.party
+val counterparty = p2.parties.list(filterParty = "counterparty::").head.party
+val stranger     = p2.parties.list(filterParty = "stranger::").head.party
+val sync1Id = p1.synchronizers.id_of(SynchronizerAlias.tryCreate("sync1"))
+val sync2Id = p1.synchronizers.id_of(SynchronizerAlias.tryCreate("sync2"))
+def newIou(viewers: Seq[PartyId] = Seq.empty, sync: SynchronizerId = sync1Id) = {
+  val cmd = new Iou(counterparty.toProtoPrimitive, client.toProtoPrimitive,
+    new Amount(JavaBigDecimal.valueOf(100.0), "USD"), viewers.map(_.toProtoPrimitive).asJava).create.commands.asScala.toSeq
+  val Seq(iou) = decodeAllCreated(Iou.COMPANION)(p2.ledger_api.javaapi.commands.submit(Seq(counterparty), cmd, synchronizerId = Some(sync)))
+  p1.ledger_api.state.acs.await_active_contract(client, iou.id.toLf)
+  iou
+}
+// 369 Topology drift: the counterparty gains a second hosting participant (p1), then loses it again.
+// On the client's Ledger API this arrives as ParticipantAuthorizationAdded, then ...Revoked, for counterparty.
+logger.info("369: adding p1 as a hosting participant of counterparty on sync1")
+Seq(p2, p1).foreach(_.topology.party_to_participant_mappings.propose_delta(counterparty, adds = List((p1.id, ParticipantPermission.Confirmation)), store = sync1Id))
+utils.retry_until_true { p1.topology.party_to_participant_mappings.are_known(sync1Id, Set(counterparty -> p2.id, counterparty -> p1.id)) }
+logger.info("369: counterparty is now hosted on p2 and p1; removing p1 again")
+// removing a host only needs the party owner (p2); p1 would fail with "not permissioned" once p2's change is authorized
+p2.topology.party_to_participant_mappings.propose_delta(counterparty, removes = List(p1.id), store = sync1Id)
+utils.retry_until_true { p1.topology.party_to_participant_mappings.are_known(sync1Id, Set(counterparty -> p2.id)) }
+logger.info("369 done")

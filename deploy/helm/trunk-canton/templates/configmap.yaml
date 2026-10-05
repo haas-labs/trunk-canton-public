@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "trunk-canton.fullname" . }}
+  labels:
+    {{- include "trunk-canton.labels" . | nindent 4 }}
+data:
+  CANTON_JSON_API: {{ .Values.canton.jsonApi | quote }}
+  CANTON_USER: {{ .Values.canton.user | quote }}
+  CANTON_KAFKA_BOOTSTRAP: {{ .Values.canton.kafkaBootstrap | quote }}
+  CANTON_TX_TOPIC: {{ .Values.canton.txTopic | quote }}
+  CANTON_TOPOLOGY_ALL_PARTIES: {{ .Values.canton.topologyAllParties | quote }}
+  CANTON_KEEP_PAYLOAD: {{ .Values.canton.keepPayload | quote }}
+  CANTON_OFFSET_FILE: {{ printf "%s/offset.txt" .Values.persistence.mountPath | quote }}

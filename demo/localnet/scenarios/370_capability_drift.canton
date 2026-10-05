@@ -1,0 +1,34 @@
+import com.digitalasset.canton.examples.java.iou.{Amount, Iou}
+import com.digitalasset.canton.participant.ledger.api.client.JavaDecodeUtil.decodeAllCreated
+import com.digitalasset.canton.participant.util.JavaCodegenUtil.ContractIdSyntax
+import java.math.{BigDecimal => JavaBigDecimal}
+import scala.jdk.CollectionConverters._
+val client       = p1.parties.list(filterParty = "client::").head.party
+val counterparty = p2.parties.list(filterParty = "counterparty::").head.party
+val stranger     = p2.parties.list(filterParty = "stranger::").head.party
+val sync1Id = p1.synchronizers.id_of(SynchronizerAlias.tryCreate("sync1"))
+val sync2Id = p1.synchronizers.id_of(SynchronizerAlias.tryCreate("sync2"))
+def newIou(viewers: Seq[PartyId] = Seq.empty, sync: SynchronizerId = sync1Id) = {
+  val cmd = new Iou(counterparty.toProtoPrimitive, client.toProtoPrimitive,
+    new Amount(JavaBigDecimal.valueOf(100.0), "USD"), viewers.map(_.toProtoPrimitive).asJava).create.commands.asScala.toSeq
+  val Seq(iou) = decodeAllCreated(Iou.COMPANION)(p2.ledger_api.javaapi.commands.submit(Seq(counterparty), cmd, synchronizerId = Some(sync)))
+  p1.ledger_api.state.acs.await_active_contract(client, iou.id.toLf)
+  iou
+}
+// 370 Key / capability drift: p1 is added as Observation-only host of counterparty, then upgraded to Submission,
+// then the party's confirmation threshold is raised to 2 and lowered back to 1 (proposed by p2, the party owner).
+// Ledger API: Added(Observation), Changed(Submission). The threshold is NOT in the Ledger API events;
+// it is visible through the Admin API (party_to_participant_mappings.list).
+logger.info("370: add p1 as Observation host")
+Seq(p2, p1).foreach(_.topology.party_to_participant_mappings.propose_delta(counterparty, adds = List((p1.id, ParticipantPermission.Observation)), store = sync1Id))
+utils.retry_until_true { p1.topology.party_to_participant_mappings.are_known(sync1Id, Set(counterparty -> p2.id, counterparty -> p1.id)) }
+logger.info("370: upgrade p1 to Submission")
+Seq(p2, p1).foreach(_.topology.party_to_participant_mappings.propose_delta(counterparty, adds = List((p1.id, ParticipantPermission.Submission)), store = sync1Id))
+Thread.sleep(2000)
+logger.info("370: raise threshold to 2, then back to 1 (Admin API only)")
+p2.topology.party_to_participant_mappings.propose(counterparty, newParticipants = Seq((p2.id, ParticipantPermission.Submission), (p1.id, ParticipantPermission.Submission)), threshold = PositiveInt.two, store = sync1Id)
+Thread.sleep(2000)
+p2.topology.party_to_participant_mappings.propose(counterparty, newParticipants = Seq((p2.id, ParticipantPermission.Submission), (p1.id, ParticipantPermission.Submission)), threshold = PositiveInt.one, store = sync1Id)
+Thread.sleep(2000)
+p1.topology.party_to_participant_mappings.list(sync1Id, filterParty = "counterparty::").foreach(m => logger.info(s"370 mapping now: threshold=${m.item.threshold} participants=${m.item.participants.map(p => p.participantId.toProtoPrimitive + ":" + p.permission)}"))
+logger.info("370 done")

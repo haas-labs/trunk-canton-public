@@ -1,0 +1,32 @@
+[project]
+name = "trunk-canton"
+version = "0.1.0"
+description = "Open-source Canton ingestion adapter: JSON Ledger API to Kafka CantonUpdate stream"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+dependencies = [
+    "ext-sentinel-py-sdk @ git+https://github.com/haas-labs/ext-sentinel-py-sdk",
+    "httpx>=0.27",
+    "aiokafka>=0.11",
+    "pydantic>=2.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+trunk-canton = "trunk_canton.__main__:cli"
+
+[build-system]
+requires = ["setuptools>=77"]  # PEP 639 SPDX license expression + license-files
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,43 @@
+image:
+  repository: trunk-canton
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+# The adapter is a single writer to the offset file; keep one replica.
+replicaCount: 1
+
+canton:
+  # Participant JSON Ledger API and the Ledger API user the adapter reads as.
+  jsonApi: "http://canton-participant:7575"
+  user: "extractor"
+  # JWT for the participant. Leave tokenSecret null for an unauthenticated node; otherwise point it
+  # at an existing Secret key holding the token.
+  tokenSecret:
+    name: ""
+    key: "CANTON_LEDGER_TOKEN"
+  # Kafka broker and destination topic.
+  kafkaBootstrap: "redpanda:19092"
+  txTopic: "canton.localnet.tx"
+  # 1 only when the user has CanReadAsAnyParty (a participant the client owns); 0 otherwise.
+  topologyAllParties: "0"
+  # 0 to strip contract payloads before they leave the participant's boundary.
+  keepPayload: "1"
+
+# The offset file must survive restarts for resume-from-offset. A persistent volume backs it.
+persistence:
+  enabled: true
+  size: 1Gi
+  # storageClass: ""    # unset uses the cluster default
+  mountPath: /data
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

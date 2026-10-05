@@ -1,0 +1,26 @@
+import com.digitalasset.canton.examples.java.iou.{Amount, Iou}
+import com.digitalasset.canton.participant.ledger.api.client.JavaDecodeUtil.decodeAllCreated
+import com.digitalasset.canton.participant.util.JavaCodegenUtil.ContractIdSyntax
+import java.math.{BigDecimal => JavaBigDecimal}
+import scala.jdk.CollectionConverters._
+val client       = p1.parties.list(filterParty = "client::").head.party
+val counterparty = p2.parties.list(filterParty = "counterparty::").head.party
+val sync1Id = p1.synchronizers.id_of(SynchronizerAlias.tryCreate("sync1"))
+def newIou(viewers: Seq[PartyId] = Seq.empty, sync: SynchronizerId = sync1Id) = {
+  val cmd = new Iou(counterparty.toProtoPrimitive, client.toProtoPrimitive,
+    new Amount(JavaBigDecimal.valueOf(100.0), "USD"), viewers.map(_.toProtoPrimitive).asJava).create.commands.asScala.toSeq
+  val Seq(iou) = decodeAllCreated(Iou.COMPANION)(p2.ledger_api.javaapi.commands.submit(Seq(counterparty), cmd, synchronizerId = Some(sync)))
+  p1.ledger_api.state.acs.await_active_contract(client, iou.id.toLf)
+  iou
+}
+// 367 Archive: the payer (counterparty, signatory) archives an Iou the client holds, through the
+// built-in Archive choice every Daml template has. Ledger API on p1 (LEDGER_EFFECTS shape): one
+// ExercisedEvent(Archive, consuming=true) with no child; in the ACS_DELTA shape the same update is
+// one ArchivedEvent. The contract leaves the client's active-contracts set either way.
+val iou = newIou()
+logger.info(s"367: counterparty archives ${iou.id.contractId}")
+p2.ledger_api.javaapi.commands.submit(Seq(counterparty), iou.id.exerciseArchive().commands.asScala.toSeq, synchronizerId = Some(sync1Id))
+p1.ledger_api.state.acs.of_party(client).find(_.contractId == iou.id.contractId) match {
+  case Some(_) => logger.error("367: the contract is still active on p1")
+  case None    => logger.info("367 done: the contract is gone from the client's active set")
+}

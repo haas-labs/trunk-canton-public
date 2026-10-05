@@ -1,0 +1,67 @@
+// Runs once when the daemon starts. Builds the world the five scenarios act on.
+import com.digitalasset.canton.examples.java.iou.{Amount, Iou}
+import com.digitalasset.canton.participant.ledger.api.client.JavaDecodeUtil.decodeAllCreated
+import com.digitalasset.canton.participant.util.JavaCodegenUtil.ContractIdSyntax
+import java.math.{BigDecimal => JavaBigDecimal}
+import scala.jdk.CollectionConverters._
+
+nodes.local.start()
+
+// --- two independent synchronizers -------------------------------------------------------
+val sync1Id = bootstrap.synchronizer("sync1", sequencers = Seq(seq1), mediators = Seq(med1),
+  synchronizerOwners = Seq(seq1), synchronizerThreshold = PositiveInt.one,
+  staticSynchronizerParameters = StaticSynchronizerParameters.defaultsWithoutKMS(ProtocolVersion.forSynchronizer)).logical
+val sync2Id = bootstrap.synchronizer("sync2", sequencers = Seq(seq2), mediators = Seq(med2),
+  synchronizerOwners = Seq(seq2), synchronizerThreshold = PositiveInt.one,
+  staticSynchronizerParameters = StaticSynchronizerParameters.defaultsWithoutKMS(ProtocolVersion.forSynchronizer)).logical
+
+// No automatic assignment: an unassign stays pending until someone assigns (scenario 372).
+seq1.topology.synchronizer_parameters.propose_update(sync1Id, _.update(assignmentExclusivityTimeout = 0 seconds))
+seq2.topology.synchronizer_parameters.propose_update(sync2Id, _.update(assignmentExclusivityTimeout = 0 seconds))
+
+val featureFlag = Seq(SynchronizerTrustCertificate.ParticipantTopologyFeatureFlag.EnableMultiSynchronizer)
+Seq(p1, p2).foreach { p =>
+  p.topology.synchronizer_trust_certificates.propose(p, sync1Id, featureFlags = featureFlag)
+  p.topology.synchronizer_trust_certificates.propose(p, sync2Id, featureFlags = featureFlag)
+  p.synchronizers.connect_local(seq1, alias = "sync1")
+  p.synchronizers.connect_local(seq2, alias = "sync2")
+}
+
+// --- parties ---------------------------------------------------------------------------------
+// client        : the monitored institution, hosted on p1
+// counterparty  : who the client trades with, hosted on p2
+// stranger      : a party that should never appear on the client's contracts, hosted on p2
+val client       = p1.parties.enable("client",       synchronizer = Some(SynchronizerAlias.tryCreate("sync1")))
+p1.parties.enable("client", synchronizer = Some(SynchronizerAlias.tryCreate("sync2")))
+val counterparty = p2.parties.enable("counterparty", synchronizer = Some(SynchronizerAlias.tryCreate("sync1")))
+p2.parties.enable("counterparty", synchronizer = Some(SynchronizerAlias.tryCreate("sync2")))
+val stranger     = p2.parties.enable("stranger",     synchronizer = Some(SynchronizerAlias.tryCreate("sync1")))
+p2.parties.enable("stranger", synchronizer = Some(SynchronizerAlias.tryCreate("sync2")))
+
+// --- the Daml model: Iou from the Canton examples --------------------------------------------
+Seq(p1, p2).dars.upload("dars/CantonExamples.dar", synchronizerId = sync1Id)
+Seq(p1, p2).dars.upload("dars/CantonExamples.dar", synchronizerId = sync2Id)
+
+// --- the user the ingestion adapter authenticates as: reads as client, acts as nobody -------
+p1.ledger_api.users.create(id = "extractor", actAs = Set.empty, primaryParty = Some(client), readAs = Set(client))
+
+// --- one contract so the snapshot is not empty: counterparty owes the client 100 USD ----------
+val iouCmd = new Iou(counterparty.toProtoPrimitive, client.toProtoPrimitive,
+  new Amount(JavaBigDecimal.valueOf(100.0), "USD"), List.empty.asJava).create.commands.asScala.toSeq
+val Seq(iou) = decodeAllCreated(Iou.COMPANION)(
+  p2.ledger_api.javaapi.commands.submit(Seq(counterparty), iouCmd, synchronizerId = Some(sync1Id)))
+p1.ledger_api.state.acs.await_active_contract(client, iou.id.toLf)
+
+// --- ids for the Python client -----------------------------------------------------------------
+val ids = s"""{
+  "client": "${client.toProtoPrimitive}",
+  "counterparty": "${counterparty.toProtoPrimitive}",
+  "stranger": "${stranger.toProtoPrimitive}",
+  "p1": "${p1.id.toProtoPrimitive}",
+  "p2": "${p2.id.toProtoPrimitive}",
+  "sync1": "${sync1Id.toProtoPrimitive}",
+  "sync2": "${sync2Id.toProtoPrimitive}",
+  "iou": "${iou.id.contractId}"
+}"""
+java.nio.file.Files.write(java.nio.file.Paths.get("/out/ids.json"), ids.getBytes)
+logger.info(s"spike bootstrap done: $ids")

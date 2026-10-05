@@ -1,0 +1,14 @@
+val counterparty = p2.parties.list(filterParty = "counterparty::").head.party
+val sync1Id = p1.synchronizers.id_of(SynchronizerAlias.tryCreate("sync1"))
+// 370b: counterparty hosted on p2 and p1 (both Submission) with confirmation threshold 2, the
+// strong posture: both nodes must confirm. Ledger API on p1: Added(Submission) for p1 if it was not
+// a host yet; nothing for the threshold. Admin API: threshold=2.
+logger.info("370b: p1 becomes a Submission host of counterparty, threshold 2")
+val alreadyHosted = p1.topology.party_to_participant_mappings.list(sync1Id, filterParty = "counterparty::").exists(_.item.participants.exists(h => h.participantId == p1.id && h.permission == ParticipantPermission.Submission))
+if (!alreadyHosted) {  // a delta that changes nothing is rejected, so the scenario can be re-run
+  Seq(p2, p1).foreach(_.topology.party_to_participant_mappings.propose_delta(counterparty, adds = List((p1.id, ParticipantPermission.Submission)), store = sync1Id))
+  utils.retry_until_true { p1.topology.party_to_participant_mappings.are_known(sync1Id, Set(counterparty -> p2.id, counterparty -> p1.id)) }
+}
+p2.topology.party_to_participant_mappings.propose(counterparty, newParticipants = Seq((p2.id, ParticipantPermission.Submission), (p1.id, ParticipantPermission.Submission)), threshold = PositiveInt.two, store = sync1Id)
+utils.retry_until_true { p1.topology.party_to_participant_mappings.list(sync1Id, filterParty = "counterparty::").exists(_.item.threshold.value == 2) }
+logger.info("370b done: threshold 2")

@@ -1,0 +1,22 @@
+import com.digitalasset.canton.examples.java.iou.{Amount, Iou}
+import com.digitalasset.canton.participant.ledger.api.client.JavaDecodeUtil.decodeAllCreated
+import com.digitalasset.canton.participant.util.JavaCodegenUtil.ContractIdSyntax
+import java.math.{BigDecimal => JavaBigDecimal}
+import scala.jdk.CollectionConverters._
+val client       = p1.parties.list(filterParty = "client::").head.party
+val counterparty = p2.parties.list(filterParty = "counterparty::").head.party
+val stranger     = p2.parties.list(filterParty = "stranger::").head.party
+val sync1Id = p1.synchronizers.id_of(SynchronizerAlias.tryCreate("sync1"))
+val sync2Id = p1.synchronizers.id_of(SynchronizerAlias.tryCreate("sync2"))
+def newIou(viewers: Seq[PartyId] = Seq.empty, sync: SynchronizerId = sync1Id) = {
+  val cmd = new Iou(counterparty.toProtoPrimitive, client.toProtoPrimitive,
+    new Amount(JavaBigDecimal.valueOf(100.0), "USD"), viewers.map(_.toProtoPrimitive).asJava).create.commands.asScala.toSeq
+  val Seq(iou) = decodeAllCreated(Iou.COMPANION)(p2.ledger_api.javaapi.commands.submit(Seq(counterparty), cmd, synchronizerId = Some(sync)))
+  p1.ledger_api.state.acs.await_active_contract(client, iou.id.toLf)
+  iou
+}
+// 372b: complete the pending reassignment from 372 -> AssignedEvent on p1.
+val Array(rid, cid) = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get("/out/372_reassignment.txt"))).trim.split(" ")
+logger.info(s"372b: assigning $rid on sync2")
+p1.ledger_api.commands.submit_assign(client, rid, sync1Id, sync2Id)
+logger.info("372b done")

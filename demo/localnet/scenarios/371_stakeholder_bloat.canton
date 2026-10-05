@@ -1,0 +1,26 @@
+import com.digitalasset.canton.examples.java.iou.{Amount, Iou}
+import com.digitalasset.canton.participant.ledger.api.client.JavaDecodeUtil.decodeAllCreated
+import com.digitalasset.canton.participant.util.JavaCodegenUtil.ContractIdSyntax
+import java.math.{BigDecimal => JavaBigDecimal}
+import scala.jdk.CollectionConverters._
+val client       = p1.parties.list(filterParty = "client::").head.party
+val counterparty = p2.parties.list(filterParty = "counterparty::").head.party
+val stranger     = p2.parties.list(filterParty = "stranger::").head.party
+val sync1Id = p1.synchronizers.id_of(SynchronizerAlias.tryCreate("sync1"))
+val sync2Id = p1.synchronizers.id_of(SynchronizerAlias.tryCreate("sync2"))
+def newIou(viewers: Seq[PartyId] = Seq.empty, sync: SynchronizerId = sync1Id) = {
+  val cmd = new Iou(counterparty.toProtoPrimitive, client.toProtoPrimitive,
+    new Amount(JavaBigDecimal.valueOf(100.0), "USD"), viewers.map(_.toProtoPrimitive).asJava).create.commands.asScala.toSeq
+  val Seq(iou) = decodeAllCreated(Iou.COMPANION)(p2.ledger_api.javaapi.commands.submit(Seq(counterparty), cmd, synchronizerId = Some(sync)))
+  p1.ledger_api.state.acs.await_active_contract(client, iou.id.toLf)
+  iou
+}
+// 371 Stakeholder / observer anomaly: an Iou created with 60 observer parties.
+// Ledger API on p1: one CreatedEvent whose observers list has 60 entries (plus the two signatories).
+val n = 60
+logger.info(s"371: enabling $n observer parties on p2")
+val run = (System.currentTimeMillis / 1000 % 100000).toString  // unique names, so the scenario can be re-run on the same node
+val observers = (1 to n).map(i => p2.parties.enable(f"obs$run%s-$i%03d", synchronizer = Some(SynchronizerAlias.tryCreate("sync1"))))
+logger.info("371: creating the bloated Iou")
+val iou = newIou(viewers = observers)
+logger.info(s"371 done: contract ${iou.id.contractId} with ${observers.size} observers")

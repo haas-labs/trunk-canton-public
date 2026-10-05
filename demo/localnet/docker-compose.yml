@@ -1,0 +1,38 @@
+# A Canton network for the detector scenarios: two participants, two synchronizers, one JVM,
+# plus a one-node Redpanda for the per-tenant topics. State is in memory: `down` then `up`
+# rebuilds the world from bootstrap.canton.
+services:
+  canton:
+    build: .
+    container_name: canton-localnet
+    command: ["daemon", "-c", "/conf/canton.conf", "--bootstrap", "/scripts/bootstrap.canton"]
+    environment:
+      JAVA_OPTS: "-Xmx4g"
+    volumes:
+      - ./canton.conf:/conf/canton.conf:ro
+      - ./remote.conf:/conf/remote.conf:ro
+      - ./bootstrap.canton:/scripts/bootstrap.canton:ro
+      - ./scenarios:/scripts/scenarios:ro
+      - ./out:/out
+    ports:
+      - "5011:5011"   # p1 ledger api (gRPC)
+      - "5012:5012"   # p1 admin api
+      - "7575:7575"   # p1 json ledger api
+      - "5021:5021"   # p2 ledger api
+      - "5022:5022"   # p2 admin api
+      - "7576:7576"   # p2 json ledger api
+
+  redpanda:
+    image: redpandadata/redpanda:v25.3.17
+    container_name: canton-localnet-redpanda
+    command:
+      - redpanda
+      - start
+      - --mode=dev-container
+      - --smp=1
+      - --memory=1G
+      - --overprovisioned
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
+    ports:
+      - "19092:19092"

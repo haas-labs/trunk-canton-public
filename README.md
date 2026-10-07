@@ -164,7 +164,7 @@ snapshot bootstrap plus Create / Exercise / Archive and topology events.
 
 
 
-https://github.com/user-attachments/assets/139cc797-388b-43b9-ba4c-3eaf13c5b688
+https://github.com/user-attachments/assets/76b57a22-3b7e-4d81-986b-df32e8016a38
 
 
 

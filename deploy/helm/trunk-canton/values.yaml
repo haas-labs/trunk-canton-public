@@ -22,6 +22,8 @@ canton:
   topologyAllParties: "0"
   # 0 to strip contract payloads before they leave the participant's boundary.
   keepPayload: "1"
+  # The node's id stamped on every record (participant_id). Empty asks the participant at start.
+  participantId: ""
 
 # The offset file must survive restarts for resume-from-offset. A persistent volume backs it.
 persistence:

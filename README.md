@@ -61,7 +61,7 @@ pip install .            # or: pip install -e ".[dev]" for tests
 Build the image:
 
 ```bash
-docker build -f deploy/Dockerfile -t trunk-canton:0.1.0 .
+docker build -f deploy/Dockerfile -t trunk-canton:0.1.1 .
 ```
 
 ## Run
@@ -131,7 +131,7 @@ A minimal reference chart is in `deploy/helm/trunk-canton`. It renders a single-
 
 ```bash
 helm install trunk-canton deploy/helm/trunk-canton \
-  --set image.repository=<registry>/trunk-canton --set image.tag=0.1.0 \
+  --set image.repository=<registry>/trunk-canton --set image.tag=0.1.1 \
   --set canton.jsonApi=http://canton-participant:7575 \
   --set canton.kafkaBootstrap=<broker>:9092 \
   --set canton.txTopic=canton.devnet.tx

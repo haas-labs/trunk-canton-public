@@ -1,6 +1,6 @@
 [project]
 name = "trunk-canton"
-version = "0.1.0"
+version = "0.1.1"
 description = "Open-source Canton ingestion adapter: JSON Ledger API to Kafka CantonUpdate stream"
 readme = "README.md"
 requires-python = ">=3.10"

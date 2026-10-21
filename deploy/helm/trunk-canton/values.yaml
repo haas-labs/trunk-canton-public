@@ -1,6 +1,6 @@
 image:
   repository: trunk-canton
-  tag: "0.1.0"
+  tag: "0.1.1"
   pullPolicy: IfNotPresent
 
 # The adapter is a single writer to the offset file; keep one replica.

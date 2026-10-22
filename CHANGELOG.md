@@ -2,7 +2,8 @@
 
 All notable changes to this project are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
-[Semantic Versioning](https://semver.org/).
+[Semantic Versioning](https://semver.org/); while the version is 0.y.z, a minor or patch
+release may still carry breaking changes, listed under "Breaking changes".
 
 ## [0.1.1] - Unreleased
 

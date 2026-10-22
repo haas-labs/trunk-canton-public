@@ -6,6 +6,8 @@ single `CantonUpdate` envelope, and publishes it to a Kafka topic. It is crash-s
 offset lets a fresh deployment bootstrap the visible active state and resume exactly where it left
 off after a restart.
 
+Changes between versions are listed in [CHANGELOG.md](CHANGELOG.md).
+
 ## How it works
 
 ```

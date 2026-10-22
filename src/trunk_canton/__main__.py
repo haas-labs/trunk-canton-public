@@ -11,6 +11,9 @@ empty for a node without auth), the offset file from CANTON_OFFSET_FILE (one per
 durable storage so a restart resumes from the persisted offset).
 Broker and topic come from CANTON_KAFKA_BOOTSTRAP (default localhost:19092) and CANTON_TX_TOPIC
 (default canton.localnet.tx; CANTON_UPDATES_TOPIC still read as a fallback name).
+Every record carries participant_id, the node it was read from, so several adapters can share one
+topic: CANTON_PARTICIPANT_ID, else GET /v2/parties/participant-id at start, else none (records then
+look as they did before the field existed).
 
 Behaviour, in the order the adapter follows:
   1. parties come from the user's rights (CanReadAs), not from a token
@@ -18,9 +21,11 @@ Behaviour, in the order the adapter follows:
      then GetLedgerEnd + GetActiveContracts -> one kind=snapshot record
   3. stream pages after the persisted offset, normalize each update to CantonUpdate, publish
   4. the offset is persisted only after the broker acknowledged the page (idempotent producer,
-     key = update_id), so a crash between produce and persist can only cause a republish, never a gap
+     key = <participant_id>/update_id), so a crash between produce and persist can only cause a
+     republish, never a gap
   5. an update that fails to parse is dead-lettered to CANTON_DLQ_TOPIC (default <topic>.dlq) with
-     the raw body and the error, and the stream advances past it, so one bad update never wedges it
+     the raw body and the error (stamped with participant_id, key = <participant_id>/offset), and
+     the stream advances past it, so one bad update never wedges it
   6. but if CANTON_MAX_CONSECUTIVE_DLQ updates are dead-lettered in a row with no successful parse,
      the adapter stops, so a parser bug or schema change cannot silently dead-letter everything
 """
@@ -59,6 +64,7 @@ TOPOLOGY_ALL = os.environ.get("CANTON_TOPOLOGY_ALL_PARTIES", "") == "1"
 # infrastructure next to the participant, and the detectors of the later packs read them. The alert
 # path hashes them; set CANTON_KEEP_PAYLOAD=0 for a topic shared beyond the client's boundary.
 KEEP_PAYLOAD = os.environ.get("CANTON_KEEP_PAYLOAD", "1") != "0"
+PARTICIPANT_ID = os.environ.get("CANTON_PARTICIPANT_ID", "")  # the node's id; empty = ask the participant
 WILDCARD = {"cumulative": [{"identifierFilter": {"WildcardFilter": {"value": {"includeCreatedEventBlob": False}}}}]}
 # Transient Ledger API failures (a network blip, a 5xx, a rate-limit) are retried with exponential
 # backoff instead of terminating the process. A permanent error (4xx, e.g. an expired token) fails
@@ -97,6 +103,30 @@ def parties():
     if not ps:
         raise SystemExit(f"user {USER!r} has no CanReadAs rights at {API}; nothing to ingest")
     return ps
+
+
+def participant_id():
+    """The id of the node this adapter reads, stamped on every record. CANTON_PARTICIPANT_ID wins;
+    otherwise the participant answers it. A participant that does not answer is not a reason to stop
+    ingesting: the records then go out without the field."""
+    if PARTICIPANT_ID:
+        return PARTICIPANT_ID
+    try:
+        return _request("GET", f"{API}/v2/parties/participant-id", timeout=30).json().get("participantId") or None
+    except Exception as e:  # noqa: BLE001 - any failure here only loses the stamp
+        log.warning(f"participant id unknown ({type(e).__name__}: {e}); publishing without participant_id")
+        return None
+
+
+def _value(u, pid=None):
+    """The record body: the CantonUpdate as JSON, stamped with the node. Stamped on the JSON rather
+    than on the model, so the adapter works with an SDK that predates CantonUpdate.participant_id."""
+    body = u.model_dump_json(exclude_none=True)
+    if not pid:
+        return body
+    record = json.loads(body)
+    record["participant_id"] = pid
+    return json.dumps(record, separators=(",", ":"))
 
 
 def event_format(ps):
@@ -196,22 +226,34 @@ async def ensure_topic():
         await admin.close()
 
 
-def _key(u):
-    # idempotent-producer key: update_id is the cross-participant dedup key; checkpoints carry no
-    # update_id, so fall back to the offset so consumers can still dedup a crash-republish.
-    return u.update_id or f"checkpoint-{u.offset}"
+def _key(u, pid=None, name=None):
+    # idempotent-producer key: the update_id, or the offset for checkpoints (no update_id), so
+    # consumers can still dedup a crash-republish. Scoped by node: two adapters on one topic publish
+    # the same update_id for a shared transaction, and their snapshots and checkpoints (offsets are
+    # local to a participant) would otherwise share a key.
+    return _scoped(name or u.update_id or f"checkpoint-{u.offset}", pid)
 
 
-async def _dead_letter(producer, poison):
+def _scoped(base, pid=None):
+    return f"{pid}/{base}" if pid else base
+
+
+async def _dead_letter(producer, poison, pid=None):
     """Publish updates that could not be parsed to the dead-letter topic with the raw body and the
-    error, so the stream keeps moving and the poison record stays auditable and reprocessable."""
+    error, so the stream keeps moving and the poison record stays auditable and reprocessable. The
+    DLQ is shared like the main topic, so the record names the node and the key (the offset, local
+    to a participant) is scoped by it: <participant_id>/<offset>."""
     for raw, error, off in poison:
-        record = json.dumps({"error": error, "offset": off, "raw": raw}, default=str)
-        await producer.send_and_wait(DLQ_TOPIC, key=(str(off) if off is not None else None), value=record)
+        body = {"error": error, "offset": off, "raw": raw}
+        if pid:
+            body["participant_id"] = pid
+        record = json.dumps(body, default=str)
+        key = _scoped(str(off), pid) if off is not None else None
+        await producer.send_and_wait(DLQ_TOPIC, key=key, value=record)
         log.warning(f"dead-lettered update at offset {off}: {error}")
 
 
-async def _publish_all(producer, updates):
+async def _publish_all(producer, updates, pid=None):
     """Enqueue every update, then block until the broker has acknowledged each one.
 
     AIOKafkaProducer.send() returns a Future whose result/exception carries the per-record delivery
@@ -219,7 +261,7 @@ async def _publish_all(producer, updates):
     futures is what makes 'the broker acknowledged the page' true, so the caller must not advance the
     persisted offset unless this returns without raising.
     """
-    futures = [await producer.send(TOPIC, key=_key(u), value=u.model_dump_json(exclude_none=True)) for u in updates]
+    futures = [await producer.send(TOPIC, key=_key(u, pid), value=_value(u, pid)) for u in updates]
     for f in futures:
         await f  # raises if this record's delivery ultimately failed
 
@@ -246,6 +288,8 @@ async def main(once: bool, reset: bool, start_from: int | None = None):
     if start_from is not None:
         _write_offset(start_from)  # replay from an explicit offset, no snapshot
     ps = parties()
+    pid = participant_id()
+    log.info(f"participant: {pid or 'unknown'}")
     await ensure_topic()
     producer = AIOKafkaProducer(bootstrap_servers=BROKER, enable_idempotence=True, acks="all",
                                 key_serializer=lambda k: k.encode() if k else None, value_serializer=lambda v: v.encode())
@@ -258,10 +302,10 @@ async def main(once: bool, reset: bool, start_from: int | None = None):
         else:
             snap = snapshot(ps)
             baseline, baseline_poison = topology_history(ps, snap.offset)
-            await _publish_all(producer, baseline)  # hosting baseline first, then the contracts
-            await producer.send_and_wait(TOPIC, key="snapshot", value=snap.model_dump_json(exclude_none=True))
+            await _publish_all(producer, baseline, pid)  # hosting baseline first, then the contracts
+            await producer.send_and_wait(TOPIC, key=_key(snap, pid, "snapshot"), value=_value(snap, pid))
             if baseline_poison:
-                await _dead_letter(producer, baseline_poison)
+                await _dead_letter(producer, baseline_poison, pid)
             offset = snap.offset
             _write_offset(offset)
             published += len(baseline) + 1
@@ -275,12 +319,12 @@ async def main(once: bool, reset: bool, start_from: int | None = None):
                 await asyncio.sleep(1)
                 continue
             if poison:
-                await _dead_letter(producer, poison)
+                await _dead_letter(producer, poison, pid)
             consecutive_dlq = 0 if updates else consecutive_dlq + len(poison)
             if consecutive_dlq >= MAX_CONSECUTIVE_DLQ:  # circuit breaker: systemic parse failure
                 raise RuntimeError(f"{consecutive_dlq} updates dead-lettered in a row with no successful parse; "
                                    "stopping so a parser bug or schema change cannot silently blind downstream")
-            await _publish_all(producer, updates)  # every record of the page acknowledged by the broker
+            await _publish_all(producer, updates, pid)  # every record of the page acknowledged by the broker
             page_offsets = [u.offset for u in updates] + [o for _, _, o in poison if o is not None]
             if not page_offsets:  # a poison-only page with no discoverable offset: cannot advance safely
                 raise RuntimeError(f"page of {len(poison)} undecodable updates with no offset; cannot advance")

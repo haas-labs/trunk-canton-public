@@ -11,4 +11,5 @@ data:
   CANTON_TX_TOPIC: {{ .Values.canton.txTopic | quote }}
   CANTON_TOPOLOGY_ALL_PARTIES: {{ .Values.canton.topologyAllParties | quote }}
   CANTON_KEEP_PAYLOAD: {{ .Values.canton.keepPayload | quote }}
+  CANTON_PARTICIPANT_ID: {{ .Values.canton.participantId | default "" | quote }}
   CANTON_OFFSET_FILE: {{ printf "%s/offset.txt" .Values.persistence.mountPath | quote }}

@@ -22,7 +22,15 @@ parties is a stakeholder or informee. The adapter follows the order a correct co
    contract set.
 3. **Stream** pages of updates after the offset, normalize each to `CantonUpdate`, publish.
 4. The offset is persisted **only after** the broker acknowledges the page (idempotent producer,
-   key = `update_id`), so a crash between produce and persist can only cause a republish, never a gap.
+   key = `<participant_id>/<update_id>`), so a crash between produce and persist can only cause a
+   republish, never a gap.
+
+Every record carries `participant_id`, the node it was read from (`CANTON_PARTICIPANT_ID`, else
+`GET /v2/parties/participant-id` at start; when neither answers, the field is left out). Several
+adapters can then publish to one topic: consumers tell the nodes apart and deduplicate by
+`(participant_id, update_id)`, since the same transaction seen by two nodes has one `update_id`.
+The snapshot and checkpoint keys are scoped the same way (`<participant_id>/snapshot`), and so is
+the dead-letter topic: its records carry `participant_id` and are keyed `<participant_id>/<offset>`.
 
 Each update is one of: `transaction`, `reassignment`, `topology`, `checkpoint`, or the bootstrap
 `snapshot`; its `events[]` carry typed entries (`created`, `exercised`, `archived`, `unassigned`,
@@ -53,7 +61,7 @@ pip install .            # or: pip install -e ".[dev]" for tests
 Build the image:
 
 ```bash
-docker build -f deploy/Dockerfile -t trunk-canton:0.1.0 .
+docker build -f deploy/Dockerfile -t trunk-canton:0.1.1 .
 ```
 
 ## Run
@@ -67,6 +75,7 @@ Configuration is entirely by environment variable:
 | `CANTON_LEDGER_TOKEN` | `` (empty) | JWT; empty for a node without auth |
 | `CANTON_KAFKA_BOOTSTRAP` | `localhost:19092` | Kafka bootstrap servers |
 | `CANTON_TX_TOPIC` | `canton.localnet.tx` | Destination topic (`CANTON_UPDATES_TOPIC` read as a fallback) |
+| `CANTON_PARTICIPANT_ID` | `` (empty) | The node's id stamped on every record; empty asks the participant |
 | `CANTON_DLQ_TOPIC` | `<topic>.dlq` | Dead-letter topic for updates that fail to parse |
 | `CANTON_MAX_CONSECUTIVE_DLQ` | `50` | Stop after this many dead-letters in a row (circuit breaker) |
 | `CANTON_OFFSET_FILE` | `/tmp/canton/offset.txt` | Persisted offset; put on durable storage |
@@ -122,7 +131,7 @@ A minimal reference chart is in `deploy/helm/trunk-canton`. It renders a single-
 
 ```bash
 helm install trunk-canton deploy/helm/trunk-canton \
-  --set image.repository=<registry>/trunk-canton --set image.tag=0.1.0 \
+  --set image.repository=<registry>/trunk-canton --set image.tag=0.1.1 \
   --set canton.jsonApi=http://canton-participant:7575 \
   --set canton.kafkaBootstrap=<broker>:9092 \
   --set canton.txTopic=canton.devnet.tx

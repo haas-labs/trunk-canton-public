@@ -1,0 +1,87 @@
+name: Feature request
+description: Suggest an improvement to the adapter, the record format, the deploy assets, the demo or the documentation.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement to trunk-canton.
+
+        **This issue is public.** Do not paste tokens, credentials, or the party ids and participant ids of real clients.
+
+        A request for a new detector or detection rule belongs in [sentinel-canton-public](https://github.com/haas-labs/sentinel-canton-public/issues/new/choose).
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: I searched the open and closed issues and did not find this request.
+          required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Ledger API reading (services, authentication, retries)
+        - Record format (CantonUpdate fields, update kinds, keys)
+        - Bootstrap, offset and resume
+        - Dead-letter handling
+        - Kafka publishing
+        - Configuration (environment variables, command line flags)
+        - Docker image or Docker Compose stack
+        - Helm chart
+        - Demo and trigger scripts
+        - Tests and fixtures
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you are trying to do and what stops you today.
+      placeholder: I want to ... but I cannot because ...
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What you would like to happen. For a configuration or record format change, show how it would look.
+    validations:
+      required: true
+  - type: dropdown
+    id: compatibility
+    attributes:
+      label: Would this change what consumers of the topic receive?
+      description: New or changed fields, keys or topics affect every consumer of the stream.
+      options:
+        - "No"
+        - "Yes, it only adds data"
+        - "Yes, it changes or removes existing data"
+        - Not sure
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other ways to solve it, including a workaround you use today.
+  - type: input
+    id: version
+    attributes:
+      label: trunk-canton and Canton versions
+      description: The versions you run today, if any.
+      placeholder: "trunk-canton 0.1.1, Canton 3.5.16"
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: Would you open a pull request for this?
+      options:
+        - "Yes"
+        - "Yes, with guidance"
+        - "No"
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else

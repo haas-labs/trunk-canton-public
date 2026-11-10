@@ -1,0 +1,144 @@
+name: Bug report
+description: The adapter crashes, publishes a wrong or incomplete record, loses or repeats updates, or does not deploy as documented.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem with trunk-canton.
+
+        **This issue is public. Before you submit, remove anything sensitive:** the Ledger API token (`CANTON_LEDGER_TOKEN`) and any JWT or JWT secret, Kafka credentials, participant credentials, internal hostnames, and the party ids, participant ids and contract payloads of real clients. Replace them with placeholders such as `client::<id>` or `http://<participant>:7575`.
+
+        If the adapter cannot connect, is rejected by the participant, or publishes nothing, the connection or ingestion problem form asks the questions that narrow that down faster.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: I searched the open and closed issues and did not find this problem.
+          required: true
+        - label: I removed tokens, credentials and real client identifiers from everything below.
+          required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - First start (topology baseline, active contract snapshot)
+        - Update stream (transaction, reassignment, topology, checkpoint records)
+        - Record content (a field is wrong, missing or not normalized as expected)
+        - Offset and resume (gap, republish, re-bootstrap after a restart)
+        - Dead-letter topic and circuit breaker
+        - Kafka publishing (keys, topic, acknowledgement)
+        - Ledger API retries and errors
+        - Docker image or Docker Compose stack
+        - Helm chart
+        - Demo (demo/localnet, demo/triggers)
+        - Documentation is wrong or unclear
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The smallest set of steps that shows the problem. If it reproduces on `demo/localnet`, say which scenario or trigger script you ran.
+      placeholder: |
+        1. Start the node with ...
+        2. Run `python -m trunk_canton ...`
+        3. Read the topic with `kcat ...` and see ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: trunk-canton version
+      description: Output of `pip show trunk-canton`, the image tag, or the commit you built from.
+      placeholder: "0.1.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: run-mode
+    attributes:
+      label: How you run it
+      options:
+        - Python package (`python -m trunk_canton` or the `trunk-canton` command)
+        - Docker Compose stack from deploy/docker-compose.yml
+        - Docker image built from deploy/Dockerfile
+        - Helm chart from deploy/helm/trunk-canton
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: target
+    attributes:
+      label: Canton node the adapter reads
+      options:
+        - demo/localnet from this repository (Docker, no auth)
+        - Splice LocalNet
+        - DevNet participant
+        - TestNet participant
+        - MainNet participant
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: canton-version
+    attributes:
+      label: Canton or Splice version
+      description: The version of the participant node.
+      placeholder: "Canton 3.5.16"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Python version, operating system and Kafka broker
+      placeholder: "Python 3.12, Ubuntu 24.04, Redpanda 24.2"
+  - type: input
+    id: sdk-version
+    attributes:
+      label: Sentinel SDK version
+      description: Output of `pip show ext-sentinel-py-sdk`.
+      placeholder: "0.5.87"
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration
+      description: The `CANTON_*` variables you set (or the Helm values) and the command line flags (`--once`, `--reset`, `--from`). Leave `CANTON_LEDGER_TOKEN` out and replace hosts with placeholders.
+      render: shell
+      placeholder: |
+        CANTON_JSON_API=http://<participant>:7575
+        CANTON_USER=extractor
+        CANTON_TX_TOPIC=canton.localnet.tx
+        CANTON_TOPOLOGY_ALL_PARTIES=1
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: The adapter log around the problem, or the full traceback, not truncated. Check it for tokens and real identifiers first.
+      render: shell
+  - type: textarea
+    id: sample
+    attributes:
+      label: Sample record
+      description: A redacted record from the topic or from the dead-letter topic that shows the problem. Remove contract payloads and replace real party and participant ids.
+      render: json
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: Links to related issues, what you already tried, or a workaround you found.

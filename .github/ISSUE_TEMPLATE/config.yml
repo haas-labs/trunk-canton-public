@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Detector problem or detector request
+    url: https://github.com/haas-labs/sentinel-canton-public/issues/new/choose
+    about: Alerts are raised by the sentinel-canton detectors that consume this stream. Report false or missed alerts and propose detectors there.
